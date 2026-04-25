@@ -12,6 +12,8 @@ type Community = {
   owner_id: string;
   name: string;
   sport_type: string;
+  city: string | null;
+  location_name: string | null;
   member_count: number | null;
   status: CommunityStatus | string | null;
   created_at?: string;
@@ -21,6 +23,8 @@ type Community = {
 type EditFormData = {
   name: string;
   sport_type: string;
+  city: string;
+  location_name: string;
 };
 
 function StatusBadge({ status }: { status: string | null }) {
@@ -83,18 +87,21 @@ export default function OrganizerCommunitiesPage() {
   const [formData, setFormData] = useState({
     name: "",
     sport_type: "Football",
+    city: "",
+    location_name: "",
   });
 
   const [editFormData, setEditFormData] = useState<EditFormData>({
     name: "",
     sport_type: "Football",
+    city: "",
+    location_name: "",
   });
 
   useEffect(() => {
     if (!loading) {
       void loadPageData();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [
     loading,
     user,
@@ -130,12 +137,6 @@ export default function OrganizerCommunitiesPage() {
         .maybeSingle();
 
       if (bannedError) {
-        console.error(
-          "Supabase error details:",
-          bannedError?.message,
-          bannedError?.details,
-          bannedError?.hint
-        );
         setErrorMessage("Failed to validate account status.");
         return;
       }
@@ -153,25 +154,18 @@ export default function OrganizerCommunitiesPage() {
       const { data, error } = await supabase
         .from("communities")
         .select(
-          "id, owner_id, name, sport_type, member_count, status, created_at, rejection_reason"
+          "id, owner_id, name, sport_type, city, location_name, member_count, status, created_at, rejection_reason"
         )
         .eq("owner_id", user.id)
         .order("created_at", { ascending: false });
 
       if (error) {
-        console.error(
-          "Supabase error details:",
-          error?.message,
-          error?.details,
-          error?.hint
-        );
         setErrorMessage("Failed to load communities.");
         return;
       }
 
       setCommunities((data as Community[]) || []);
     } catch (error) {
-      console.error("Unexpected error:", error);
       setErrorMessage("Something went wrong while loading communities.");
     } finally {
       setPageLoading(false);
@@ -180,26 +174,20 @@ export default function OrganizerCommunitiesPage() {
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
-
-    setFormData((prev) => ({
-      ...prev,
-      [name]: value,
-    }));
+    setFormData((prev) => ({ ...prev, [name]: value }));
   };
 
   const handleEditChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const { name, value } = e.target;
-
-    setEditFormData((prev) => ({
-      ...prev,
-      [name]: value,
-    }));
+    setEditFormData((prev) => ({ ...prev, [name]: value }));
   };
 
   const resetForm = () => {
     setFormData({
       name: "",
       sport_type: "Football",
+      city: "",
+      location_name: "",
     });
   };
 
@@ -210,6 +198,8 @@ export default function OrganizerCommunitiesPage() {
     setEditFormData({
       name: community.name,
       sport_type: community.sport_type || "Football",
+      city: community.city || "",
+      location_name: community.location_name || "",
     });
   };
 
@@ -218,6 +208,8 @@ export default function OrganizerCommunitiesPage() {
     setEditFormData({
       name: "",
       sport_type: "Football",
+      city: "",
+      location_name: "",
     });
   };
 
@@ -225,31 +217,19 @@ export default function OrganizerCommunitiesPage() {
     e: React.FormEvent<HTMLFormElement>
   ) => {
     e.preventDefault();
-
     try {
       setSubmitting(true);
       setErrorMessage("");
       setSuccessMessage("");
 
-      if (!user) {
-        setErrorMessage("You must be logged in.");
-        return;
-      }
-
-      if (!canManageCommunities) {
-        setErrorMessage("You do not have access to create communities.");
-        return;
-      }
-
-      if (isApprovedOrganizerOnly && verificationStatus !== "approved") {
-        setErrorMessage("Only approved organizers can create communities.");
-        return;
-      }
+      if (!user) return;
 
       const trimmedName = formData.name.trim();
+      const trimmedCity = formData.city.trim();
+      const trimmedLocation = formData.location_name.trim();
 
-      if (!trimmedName) {
-        setErrorMessage("Please enter the community name.");
+      if (!trimmedName || !trimmedCity || !trimmedLocation) {
+        setErrorMessage("Please fill in all required fields (Name, City, and Location).");
         return;
       }
 
@@ -260,38 +240,27 @@ export default function OrganizerCommunitiesPage() {
             owner_id: user.id,
             name: trimmedName,
             sport_type: "Football",
+            city: trimmedCity,
+            location_name: trimmedLocation,
             member_count: 0,
             status: "pending",
           },
         ])
         .select(
-          "id, owner_id, name, sport_type, member_count, status, created_at, rejection_reason"
+          "id, owner_id, name, sport_type, city, location_name, member_count, status, created_at, rejection_reason"
         )
         .maybeSingle();
 
       if (error) {
-        console.error(
-          "Supabase error details:",
-          error?.message,
-          error?.details,
-          error?.hint
-        );
         setErrorMessage(error.message || "Failed to create community.");
         return;
       }
 
-      const createdCommunity = data as Community | null;
+      if (data) setCommunities((prev) => [data as Community, ...prev]);
 
-      if (createdCommunity) {
-        setCommunities((prev) => [createdCommunity, ...prev]);
-      }
-
-      setSuccessMessage(
-        "Community created successfully and sent for main admin approval."
-      );
+      setSuccessMessage("Community created successfully and sent for approval.");
       resetForm();
     } catch (error) {
-      console.error("Unexpected error:", error);
       setErrorMessage("Something went wrong while creating the community.");
     } finally {
       setSubmitting(false);
@@ -302,22 +271,13 @@ export default function OrganizerCommunitiesPage() {
     try {
       setSavingEdit(true);
       setErrorMessage("");
-      setSuccessMessage("");
-
-      if (!user) {
-        setErrorMessage("You must be logged in.");
-        return;
-      }
-
-      if (!canManageCommunities) {
-        setErrorMessage("You do not have access to edit communities.");
-        return;
-      }
 
       const trimmedName = editFormData.name.trim();
+      const trimmedCity = editFormData.city.trim();
+      const trimmedLocation = editFormData.location_name.trim();
 
-      if (!trimmedName) {
-        setErrorMessage("Please enter the community name.");
+      if (!trimmedName || !trimmedCity || !trimmedLocation) {
+        setErrorMessage("Name, City, and Location cannot be empty.");
         return;
       }
 
@@ -325,103 +285,55 @@ export default function OrganizerCommunitiesPage() {
         .from("communities")
         .update({
           name: trimmedName,
-          sport_type: "Football",
+          city: trimmedCity,
+          location_name: trimmedLocation,
           status: "pending",
           rejection_reason: null,
           approved_by: null,
           approved_at: null,
         })
         .eq("id", communityId)
-        .eq("owner_id", user.id)
+        .eq("owner_id", user!.id)
         .select(
-          "id, owner_id, name, sport_type, member_count, status, created_at, rejection_reason"
+          "id, owner_id, name, sport_type, city, location_name, member_count, status, created_at, rejection_reason"
         )
         .maybeSingle();
 
       if (error) {
-        console.error(
-          "Supabase error details:",
-          error?.message,
-          error?.details,
-          error?.hint
-        );
         setErrorMessage(error.message || "Failed to update community.");
         return;
       }
 
-      const updatedCommunity = data as Community | null;
-
-      if (updatedCommunity) {
+      if (data) {
         setCommunities((prev) =>
-          prev.map((community) =>
-            community.id === communityId ? updatedCommunity : community
-          )
+          prev.map((c) => (c.id === communityId ? (data as Community) : c))
         );
       }
 
-      setSuccessMessage(
-        "Community updated and re-submitted for main admin approval."
-      );
+      setSuccessMessage("Community updated and re-submitted for approval.");
       cancelEdit();
     } catch (error) {
-      console.error("Unexpected error:", error);
-      setErrorMessage("Something went wrong while updating the community.");
+      setErrorMessage("Something went wrong while updating.");
     } finally {
       setSavingEdit(false);
     }
   };
 
   const handleDeleteCommunity = async (communityId: string) => {
-    const confirmed = window.confirm(
-      "Are you sure you want to delete this community?"
-    );
-
-    if (!confirmed) return;
-
+    if (!window.confirm("Are you sure you want to delete this community?")) return;
     try {
       setDeletingCommunityId(communityId);
-      setErrorMessage("");
-      setSuccessMessage("");
-
-      if (!user) {
-        setErrorMessage("You must be logged in.");
-        return;
-      }
-
-      if (!canManageCommunities) {
-        setErrorMessage("You do not have access to delete communities.");
-        return;
-      }
-
       const { error } = await supabase
         .from("communities")
         .delete()
         .eq("id", communityId)
-        .eq("owner_id", user.id);
+        .eq("owner_id", user!.id);
 
-      if (error) {
-        console.error(
-          "Supabase error details:",
-          error?.message,
-          error?.details,
-          error?.hint
-        );
-        setErrorMessage(error.message || "Failed to delete community.");
-        return;
-      }
-
-      setCommunities((prev) =>
-        prev.filter((community) => community.id !== communityId)
-      );
-
-      if (editingCommunityId === communityId) {
-        cancelEdit();
-      }
-
+      if (error) throw error;
+      setCommunities((prev) => prev.filter((c) => c.id !== communityId));
       setSuccessMessage("Community deleted successfully.");
     } catch (error) {
-      console.error("Unexpected error:", error);
-      setErrorMessage("Something went wrong while deleting the community.");
+      setErrorMessage("Failed to delete community.");
     } finally {
       setDeletingCommunityId(null);
     }
@@ -435,31 +347,14 @@ export default function OrganizerCommunitiesPage() {
     );
   }
 
-  if (!user) return null;
-  if (!canManageCommunities) return null;
+  if (!user || !canManageCommunities) return null;
 
   if (isApprovedOrganizerOnly && verificationStatus !== "approved") {
     return (
       <div className="space-y-6">
         <div className="rounded-2xl border bg-white p-6 shadow-sm">
           <h1 className="text-2xl font-bold text-gray-900">My Communities</h1>
-          <p className="mt-2 text-sm text-gray-600">
-            You need approved organizer access before creating communities.
-          </p>
-        </div>
-
-        <div className="rounded-2xl border border-yellow-200 bg-yellow-50 p-6">
-          <h2 className="text-lg font-semibold text-yellow-900">
-            Verification Status
-          </h2>
-          <p className="mt-2 text-sm text-yellow-800">
-            {verificationStatus === "pending" &&
-              "Your organizer request is still pending review."}
-            {verificationStatus === "rejected" &&
-              "Your organizer request was rejected. Please update your submission and try again."}
-            {!verificationStatus &&
-              "No verification request was found for your account yet."}
-          </p>
+          <p className="mt-2 text-sm text-gray-600">You need approved organizer access before creating communities.</p>
         </div>
       </div>
     );
@@ -469,205 +364,70 @@ export default function OrganizerCommunitiesPage() {
     <div className="space-y-6">
       <div className="rounded-2xl border bg-white p-6 shadow-sm">
         <h1 className="text-2xl font-bold text-gray-900">My Communities</h1>
-        <p className="mt-2 text-sm text-gray-600">
-          Create communities and send them for main admin approval.
-        </p>
       </div>
 
-      {errorMessage && (
-        <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
-          {errorMessage}
-        </div>
-      )}
-
-      {successMessage && (
-        <div className="rounded-2xl border border-green-200 bg-green-50 p-4 text-sm text-green-700">
-          {successMessage}
-        </div>
-      )}
+      {errorMessage && <div className="rounded-2xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">{errorMessage}</div>}
+      {successMessage && <div className="rounded-2xl border border-green-200 bg-green-50 p-4 text-sm text-green-700">{successMessage}</div>}
 
       <div className="grid gap-6 lg:grid-cols-3">
+        {/* CREATE FORM */}
         <div className="lg:col-span-1">
           <div className="rounded-2xl border bg-white p-6 shadow-sm">
-            <h2 className="text-lg font-semibold text-gray-900">
-              Create Community
-            </h2>
-
+            <h2 className="text-lg font-semibold text-gray-900">Create Community</h2>
             <form onSubmit={handleCreateCommunity} className="mt-5 space-y-4">
               <div>
-                <label
-                  htmlFor="name"
-                  className="mb-2 block text-sm font-medium text-gray-700"
-                >
-                  Community Name
-                </label>
-                <input
-                  id="name"
-                  name="name"
-                  type="text"
-                  value={formData.name}
-                  onChange={handleChange}
-                  placeholder="Example: Downtown Football Club"
-                  className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm outline-none transition focus:border-black"
-                  required
-                />
+                <label className="mb-2 block text-sm font-medium text-gray-700">Community Name</label>
+                <input name="name" type="text" value={formData.name} onChange={handleChange} className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm outline-none transition focus:border-black" required />
               </div>
-
               <div>
-                <label className="mb-2 block text-sm font-medium text-gray-700">
-                  Sport Type
-                </label>
-                <input
-                  type="text"
-                  value="Football"
-                  disabled
-                  className="w-full rounded-xl border border-gray-200 bg-gray-100 px-4 py-3 text-sm text-gray-600 outline-none"
-                />
+                <label className="mb-2 block text-sm font-medium text-gray-700">City</label>
+                <input name="city" type="text" value={formData.city} onChange={handleChange} placeholder="e.g. Irbid, Amman" className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm outline-none transition focus:border-black" required />
               </div>
-
-              <button
-                type="submit"
-                disabled={submitting}
-                className="w-full rounded-xl bg-black px-4 py-3 text-sm font-medium text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-              >
+              <div>
+                <label className="mb-2 block text-sm font-medium text-gray-700">Location Name</label>
+                <input name="location_name" type="text" value={formData.location_name} onChange={handleChange} placeholder="e.g. Downtown Court" className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm outline-none transition focus:border-black" required />
+              </div>
+              <button type="submit" disabled={submitting} className="w-full rounded-xl bg-black px-4 py-3 text-sm font-medium text-white transition hover:opacity-90 disabled:opacity-60">
                 {submitting ? "Creating..." : "Create Community"}
               </button>
             </form>
           </div>
         </div>
 
+        {/* LIST */}
         <div className="lg:col-span-2">
           <div className="space-y-4">
             {communities.length === 0 ? (
               <div className="rounded-2xl border bg-white p-8 text-center shadow-sm">
-                <p className="text-sm text-gray-500">
-                  No communities yet. Create your first one.
-                </p>
+                <p className="text-sm text-gray-500">No communities yet.</p>
               </div>
             ) : (
               communities.map((community) => {
                 const isEditing = editingCommunityId === community.id;
-
                 return (
-                  <div
-                    key={community.id}
-                    className="rounded-2xl border bg-white p-5 shadow-sm"
-                  >
+                  <div key={community.id} className="rounded-2xl border bg-white p-5 shadow-sm">
                     {isEditing ? (
                       <div className="space-y-4">
-                        <div className="flex items-start justify-between gap-3">
-                          <h3 className="text-base font-semibold text-gray-900">
-                            Edit Community
-                          </h3>
-                          <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-medium text-blue-700">
-                            Editing
-                          </span>
-                        </div>
-
-                        <div className="grid gap-4 md:grid-cols-2">
-                          <div>
-                            <label className="mb-2 block text-sm font-medium text-gray-700">
-                              Community Name
-                            </label>
-                            <input
-                              name="name"
-                              type="text"
-                              value={editFormData.name}
-                              onChange={handleEditChange}
-                              className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm outline-none transition focus:border-black"
-                            />
-                          </div>
-
-                          <div>
-                            <label className="mb-2 block text-sm font-medium text-gray-700">
-                              Sport Type
-                            </label>
-                            <input
-                              type="text"
-                              value="Football"
-                              disabled
-                              className="w-full rounded-xl border border-gray-200 bg-gray-100 px-4 py-3 text-sm text-gray-600 outline-none"
-                            />
-                          </div>
-                        </div>
-
-                        <div className="rounded-xl border border-yellow-200 bg-yellow-50 p-4 text-sm text-yellow-800">
-                          Saving changes will send this community for main admin
-                          review again.
-                        </div>
-
-                        <div className="flex flex-wrap gap-3">
-                          <button
-                            type="button"
-                            onClick={() => void handleSaveEdit(community.id)}
-                            disabled={savingEdit}
-                            className="rounded-xl bg-black px-4 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-                          >
-                            {savingEdit ? "Saving..." : "Save Changes"}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={cancelEdit}
-                            disabled={savingEdit}
-                            className="rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
-                          >
-                            Cancel
-                          </button>
+                        <input name="name" type="text" value={editFormData.name} onChange={handleEditChange} className="w-full rounded-xl border border-gray-300 px-4 py-2 text-sm" placeholder="Name" />
+                        <input name="city" type="text" value={editFormData.city} onChange={handleEditChange} className="w-full rounded-xl border border-gray-300 px-4 py-2 text-sm" placeholder="City" />
+                        <input name="location_name" type="text" value={editFormData.location_name} onChange={handleEditChange} className="w-full rounded-xl border border-gray-300 px-4 py-2 text-sm" placeholder="Location" />
+                        <div className="flex gap-3">
+                          <button onClick={() => void handleSaveEdit(community.id)} disabled={savingEdit} className="rounded-xl bg-black px-4 py-2 text-sm text-white">Save</button>
+                          <button onClick={cancelEdit} className="rounded-xl border border-gray-300 px-4 py-2 text-sm">Cancel</button>
                         </div>
                       </div>
                     ) : (
                       <>
-                        <div className="flex items-start justify-between gap-3">
+                        <div className="flex items-start justify-between">
                           <div>
-                            <h3 className="text-base font-semibold text-gray-900">
-                              {community.name}
-                            </h3>
-                            <p className="mt-1 text-sm text-gray-600">
-                              Sport: {community.sport_type || "Football"}
-                            </p>
+                            <h3 className="text-base font-semibold text-gray-900">{community.name}</h3>
+                            <p className="text-sm text-gray-600">{community.city} - {community.location_name}</p>
                           </div>
-
                           <StatusBadge status={community.status} />
                         </div>
-
-                        <div className="mt-4 space-y-1 text-sm text-gray-600">
-                          <p>Members: {community.member_count ?? 0}</p>
-                          {community.created_at && (
-                            <p>
-                              Created:{" "}
-                              {new Date(
-                                community.created_at
-                              ).toLocaleDateString()}
-                            </p>
-                          )}
-                          {community.status === "rejected" &&
-                            community.rejection_reason && (
-                              <p className="text-red-600">
-                                Rejection reason: {community.rejection_reason}
-                              </p>
-                            )}
-                        </div>
-
-                        <div className="mt-5 flex flex-wrap gap-3">
-                          <button
-                            type="button"
-                            onClick={() => startEdit(community)}
-                            className="rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
-                          >
-                            Edit
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              void handleDeleteCommunity(community.id)
-                            }
-                            disabled={deletingCommunityId === community.id}
-                            className="rounded-xl bg-red-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
-                          >
-                            {deletingCommunityId === community.id
-                              ? "Deleting..."
-                              : "Delete"}
-                          </button>
+                        <div className="mt-5 flex gap-3">
+                          <button onClick={() => startEdit(community)} className="rounded-xl border border-gray-300 px-4 py-2 text-sm">Edit</button>
+                          <button onClick={() => void handleDeleteCommunity(community.id)} className="rounded-xl bg-red-600 px-4 py-2 text-sm text-white">Delete</button>
                         </div>
                       </>
                     )}
