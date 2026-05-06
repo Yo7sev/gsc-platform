@@ -1,8 +1,8 @@
 "use client";
 
-import { useAuth } from "@/components/AuthContext";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useAuth } from "@/components/AuthContext";
 
 export default function DashboardLayout({
   children,
@@ -112,6 +112,7 @@ function OrganizerSidebar({
   const items = [
     { label: "Dashboard", href: "/organizer" },
     { label: "Communities", href: "/organizer/communities" },
+    { label: "Join Requests", href: "/organizer/join-requests" },
     { label: "Matches", href: "/organizer/matches" },
     { label: "Profile", href: "/profile" },
   ];
@@ -132,8 +133,8 @@ function OrganizerSidebar({
           Community Flow
         </p>
         <p className="mt-1 text-sm text-blue-800">
-          New communities need main admin approval. Matches can be public or
-          linked to an active community.
+          New communities need main admin approval. Players also need organizer
+          approval before joining a community.
         </p>
       </div>
 

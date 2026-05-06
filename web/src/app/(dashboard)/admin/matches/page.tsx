@@ -36,7 +36,6 @@ type OrganizerUser = {
 type CommunityRow = {
   id: string;
   name: string;
-  status: string | null;
 };
 
 type Match = {
@@ -62,25 +61,6 @@ type Match = {
   } | null;
 };
 
-type CommunityOption = {
-  id: string;
-  name: string;
-};
-
-type CreateFormData = {
-  community_id: string;
-  title: string;
-  location: string;
-  scheduled_at: string;
-  formation_type: string;
-  booking_logic: string;
-  position_enabled: boolean;
-  max_players: number;
-  price: number;
-  status: MatchStatus;
-  google_maps_url: string;
-};
-
 type EditFormData = {
   community_id: string;
   title: string;
@@ -99,38 +79,31 @@ const PUBLIC_MATCH_VALUE = "public";
 
 export default function AdminMatchesPage() {
   const router = useRouter();
-  const { user, loading, isAdmin } = useAuth();
+  const { user, loading, isAdmin, isMainAdmin } = useAuth();
+
+  const canViewMatches = isAdmin || isMainAdmin;
+  const canCreateMatches = false;
+  const canEditMatches = isAdmin || isMainAdmin;
+  const canDeleteMatches = isAdmin || isMainAdmin;
+  const canTerminateMatches = isAdmin || isMainAdmin;
 
   const [pageLoading, setPageLoading] = useState(true);
   const [matches, setMatches] = useState<Match[]>([]);
-  const [communities, setCommunities] = useState<CommunityOption[]>([]);
+  const [communities, setCommunities] = useState<CommunityRow[]>([]);
   const [errorMessage, setErrorMessage] = useState("");
   const [successMessage, setSuccessMessage] = useState("");
   const [editingMatchId, setEditingMatchId] = useState<string | null>(null);
   const [savingEdit, setSavingEdit] = useState(false);
-  const [deletingMatchId, setDeletingMatchId] = useState<string | null>(null);
+  const [processingMatchId, setProcessingMatchId] = useState<string | null>(
+    null,
+  );
   const [deleteTargetId, setDeleteTargetId] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [uploadingImages, setUploadingImages] = useState(false);
+  const [terminateTargetId, setTerminateTargetId] = useState<string | null>(
+    null,
+  );
 
   const [searchTerm, setSearchTerm] = useState("");
   const [statusFilter, setStatusFilter] = useState<"all" | MatchStatus>("all");
-
-  const [formData, setFormData] = useState<CreateFormData>({
-    community_id: PUBLIC_MATCH_VALUE,
-    title: "",
-    location: "",
-    scheduled_at: "",
-    formation_type: "",
-    booking_logic: "",
-    position_enabled: false,
-    max_players: 10,
-    price: 0,
-    status: "open",
-    google_maps_url: "",
-  });
-
-  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
 
   const [editFormData, setEditFormData] = useState<EditFormData>({
     community_id: PUBLIC_MATCH_VALUE,
@@ -148,23 +121,16 @@ export default function AdminMatchesPage() {
 
   const [editSelectedFiles, setEditSelectedFiles] = useState<File[]>([]);
 
-  useEffect(() => {
-    if (!loading) {
-      void loadPageData();
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [loading, user, isAdmin]);
-
   const communityMap = useMemo(() => {
     return new Map(
       communities.map((community) => [community.id, community.name]),
     );
   }, [communities]);
 
-  const filteredMatches = useMemo(() => {
+  const filteredMatches: Match[] = useMemo(() => {
     const query = searchTerm.trim().toLowerCase();
 
-    return matches.filter((match) => {
+    return matches.filter((match: Match) => {
       const matchesSearch =
         !query ||
         match.title.toLowerCase().includes(query) ||
@@ -181,6 +147,13 @@ export default function AdminMatchesPage() {
     });
   }, [matches, searchTerm, statusFilter]);
 
+  useEffect(() => {
+    if (!loading) {
+      void loadPageData();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [loading, user, isAdmin, isMainAdmin]);
+
   const loadPageData = async () => {
     try {
       setPageLoading(true);
@@ -194,7 +167,7 @@ export default function AdminMatchesPage() {
         return;
       }
 
-      if (!isAdmin) {
+      if (!canViewMatches) {
         router.push("/");
         return;
       }
@@ -208,9 +181,9 @@ export default function AdminMatchesPage() {
       if (bannedError) {
         console.error(
           "Supabase error details:",
-          bannedError?.message,
-          bannedError?.details,
-          bannedError?.hint,
+          bannedError.message,
+          bannedError.details,
+          bannedError.hint,
         );
         setErrorMessage("Failed to validate account status.");
         return;
@@ -228,19 +201,15 @@ export default function AdminMatchesPage() {
           .select("*")
           .order("scheduled_at", { ascending: false }),
         supabase.from("users").select("id, full_name, email"),
-        supabase
-          .from("communities")
-          .select("id, name, status")
-          .eq("status", "active")
-          .order("name", { ascending: true }),
+        supabase.from("communities").select("id, name"),
       ]);
 
       if (matchRes.error) {
         console.error(
           "Supabase error details:",
-          matchRes.error?.message,
-          matchRes.error?.details,
-          matchRes.error?.hint,
+          matchRes.error.message,
+          matchRes.error.details,
+          matchRes.error.hint,
         );
         setErrorMessage("Failed to load matches.");
         return;
@@ -249,9 +218,9 @@ export default function AdminMatchesPage() {
       if (organizerRes.error) {
         console.error(
           "Supabase error details:",
-          organizerRes.error?.message,
-          organizerRes.error?.details,
-          organizerRes.error?.hint,
+          organizerRes.error.message,
+          organizerRes.error.details,
+          organizerRes.error.hint,
         );
         setErrorMessage("Failed to load organizers.");
         return;
@@ -260,9 +229,9 @@ export default function AdminMatchesPage() {
       if (communityRes.error) {
         console.error(
           "Supabase error details:",
-          communityRes.error?.message,
-          communityRes.error?.details,
-          communityRes.error?.hint,
+          communityRes.error.message,
+          communityRes.error.details,
+          communityRes.error.hint,
         );
         setErrorMessage("Failed to load communities.");
         return;
@@ -270,20 +239,15 @@ export default function AdminMatchesPage() {
 
       const rawMatches = (matchRes.data as MatchRow[]) || [];
       const organizers = (organizerRes.data as OrganizerUser[]) || [];
-      const activeCommunities = (
-        (communityRes.data as CommunityRow[]) || []
-      ).map((community) => ({
-        id: community.id,
-        name: community.name,
-      }));
+      const loadedCommunities = (communityRes.data as CommunityRow[]) || [];
 
-      setCommunities(activeCommunities);
+      setCommunities(loadedCommunities);
 
       const organizerMap = new Map(
         organizers.map((organizer) => [organizer.id, organizer]),
       );
 
-      const normalizedMatches: Match[] = rawMatches.map((match) => {
+      const normalizedMatches: Match[] = rawMatches.map((match: MatchRow) => {
         const organizer = organizerMap.get(match.organizer_id);
 
         return {
@@ -305,9 +269,7 @@ export default function AdminMatchesPage() {
           communityName:
             match.community_id == null
               ? "Public Match"
-              : (activeCommunities.find(
-                  (community) => community.id === match.community_id,
-                )?.name ?? "Unknown Community"),
+              : (communityMap.get(match.community_id) ?? "Unknown Community"),
           users: organizer
             ? {
                 full_name: organizer.full_name,
@@ -324,73 +286,6 @@ export default function AdminMatchesPage() {
     } finally {
       setPageLoading(false);
     }
-  };
-
-  const handleChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>,
-  ) => {
-    const { name, value, type } = e.target;
-
-    if (type === "checkbox") {
-      const checked = (e.target as HTMLInputElement).checked;
-      setFormData((prev) => ({
-        ...prev,
-        [name]: checked,
-      }));
-      return;
-    }
-
-    setFormData((prev) => ({
-      ...prev,
-      [name]:
-        name === "max_players" || name === "price" ? Number(value) : value,
-    }));
-  };
-
-  const handleEditChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>,
-  ) => {
-    const { name, value, type } = e.target;
-
-    if (type === "checkbox") {
-      const checked = (e.target as HTMLInputElement).checked;
-      setEditFormData((prev) => ({
-        ...prev,
-        [name]: checked,
-      }));
-      return;
-    }
-
-    setEditFormData((prev) => ({
-      ...prev,
-      [name]:
-        name === "max_players" || name === "price" ? Number(value) : value,
-    }));
-  };
-
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setSelectedFiles(Array.from(e.target.files ?? []));
-  };
-
-  const handleEditFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setEditSelectedFiles(Array.from(e.target.files ?? []));
-  };
-
-  const resetForm = () => {
-    setFormData({
-      community_id: PUBLIC_MATCH_VALUE,
-      title: "",
-      location: "",
-      scheduled_at: "",
-      formation_type: "",
-      booking_logic: "",
-      position_enabled: false,
-      max_players: 10,
-      price: 0,
-      status: "open",
-      google_maps_url: "",
-    });
-    setSelectedFiles([]);
   };
 
   const startEdit = (match: Match) => {
@@ -436,123 +331,29 @@ export default function AdminMatchesPage() {
     setEditSelectedFiles([]);
   };
 
-  const handleCreateMatch = async (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
+  const handleEditChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>,
+  ) => {
+    const { name, value, type } = e.target;
 
-    try {
-      setSubmitting(true);
-      setUploadingImages(true);
-      setErrorMessage("");
-      setSuccessMessage("");
-
-      if (!user) {
-        setErrorMessage("You must be logged in.");
-        return;
-      }
-
-      if (!isAdmin) {
-        setErrorMessage("Only admins can create matches.");
-        return;
-      }
-
-      const trimmedTitle = formData.title.trim();
-      const trimmedLocation = formData.location.trim();
-      const trimmedFormationType = formData.formation_type.trim();
-      const trimmedBookingLogic = formData.booking_logic.trim();
-      const trimmedMapsUrl = formData.google_maps_url.trim();
-
-      if (!trimmedTitle || !trimmedLocation || !formData.scheduled_at) {
-        setErrorMessage("Please fill in all required fields.");
-        return;
-      }
-
-      if (formData.max_players < 2) {
-        setErrorMessage("Max players must be at least 2.");
-        return;
-      }
-
-      const selectedCommunityId =
-        formData.community_id === PUBLIC_MATCH_VALUE
-          ? null
-          : formData.community_id;
-
-      const uploadedImageUrls = await uploadMatchImages(selectedFiles, user.id);
-
-      const { data, error } = await supabase
-        .from("matches")
-        .insert([
-          {
-            organizer_id: user.id,
-            community_id: selectedCommunityId,
-            title: trimmedTitle,
-            location: trimmedLocation,
-            scheduled_at: formData.scheduled_at,
-            formation_type: trimmedFormationType || null,
-            booking_logic: trimmedBookingLogic || null,
-            position_enabled: formData.position_enabled,
-            max_players: formData.max_players,
-            price: formData.price,
-            status: formData.status,
-            google_maps_url: trimmedMapsUrl || null,
-            image_urls: uploadedImageUrls,
-          },
-        ])
-        .select("*")
-        .maybeSingle();
-
-      if (error) {
-        console.error(
-          "Supabase error details:",
-          error?.message,
-          error?.details,
-          error?.hint,
-        );
-        setErrorMessage(error.message || "Failed to create match.");
-        return;
-      }
-
-      const createdMatch = data as MatchRow | null;
-
-      if (createdMatch) {
-        const normalizedMatch: Match = {
-          id: createdMatch.id,
-          organizer_id: createdMatch.organizer_id,
-          community_id: createdMatch.community_id ?? null,
-          title: createdMatch.title,
-          location: createdMatch.location,
-          scheduled_at: createdMatch.scheduled_at,
-          formation_type: createdMatch.formation_type ?? null,
-          booking_logic: createdMatch.booking_logic ?? null,
-          position_enabled: createdMatch.position_enabled ?? false,
-          max_players: createdMatch.max_players,
-          price: createdMatch.price ?? null,
-          status: createdMatch.status,
-          created_at: createdMatch.created_at,
-          google_maps_url: createdMatch.google_maps_url ?? null,
-          image_urls: createdMatch.image_urls ?? [],
-          communityName:
-            createdMatch.community_id == null
-              ? "Public Match"
-              : (communityMap.get(createdMatch.community_id) ??
-                "Unknown Community"),
-          users: {
-            full_name: user.full_name ?? null,
-            email: user.email ?? null,
-          },
-        };
-
-        setMatches((prev) => [normalizedMatch, ...prev]);
-      }
-
-      setSuccessMessage("Match created successfully.");
-      resetForm();
-    } catch (error) {
-      console.error("Unexpected error:", error);
-      setErrorMessage("Something went wrong while creating the match.");
-    } finally {
-      setSubmitting(false);
-      setUploadingImages(false);
+    if (type === "checkbox") {
+      const checked = (e.target as HTMLInputElement).checked;
+      setEditFormData((prev) => ({
+        ...prev,
+        [name]: checked,
+      }));
+      return;
     }
+
+    setEditFormData((prev) => ({
+      ...prev,
+      [name]:
+        name === "max_players" || name === "price" ? Number(value) : value,
+    }));
+  };
+
+  const handleEditFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setEditSelectedFiles(Array.from(e.target.files ?? []));
   };
 
   const handleSaveEdit = async (matchId: string) => {
@@ -566,8 +367,8 @@ export default function AdminMatchesPage() {
         return;
       }
 
-      if (!isAdmin) {
-        setErrorMessage("Only admins can edit matches.");
+      if (!canEditMatches) {
+        setErrorMessage("You do not have permission to edit matches.");
         return;
       }
 
@@ -597,7 +398,7 @@ export default function AdminMatchesPage() {
         user.id,
       );
       const existingImageUrls =
-        matches.find((m) => m.id === matchId)?.image_urls ?? [];
+        matches.find((m: Match) => m.id === matchId)?.image_urls ?? [];
       const mergedImageUrls = [...existingImageUrls, ...uploadedImageUrls];
 
       const { data, error } = await supabase
@@ -623,9 +424,9 @@ export default function AdminMatchesPage() {
       if (error) {
         console.error(
           "Supabase error details:",
-          error?.message,
-          error?.details,
-          error?.hint,
+          error.message,
+          error.details,
+          error.hint,
         );
         setErrorMessage(error.message || "Failed to update match.");
         return;
@@ -634,7 +435,7 @@ export default function AdminMatchesPage() {
       const updatedMatch = data as MatchRow | null;
 
       if (updatedMatch) {
-        const previous = matches.find((match) => match.id === matchId);
+        const previous = matches.find((match: Match) => match.id === matchId);
 
         const normalizedMatch: Match = {
           id: updatedMatch.id,
@@ -661,7 +462,9 @@ export default function AdminMatchesPage() {
         };
 
         setMatches((prev) =>
-          prev.map((match) => (match.id === matchId ? normalizedMatch : match)),
+          prev.map((match: Match) =>
+            match.id === matchId ? normalizedMatch : match,
+          ),
         );
       }
 
@@ -677,7 +480,7 @@ export default function AdminMatchesPage() {
 
   const handleDeleteMatch = async (matchId: string) => {
     try {
-      setDeletingMatchId(matchId);
+      setProcessingMatchId(matchId);
       setErrorMessage("");
       setSuccessMessage("");
 
@@ -686,8 +489,8 @@ export default function AdminMatchesPage() {
         return;
       }
 
-      if (!isAdmin) {
-        setErrorMessage("Only admins can delete matches.");
+      if (!canDeleteMatches) {
+        setErrorMessage("You do not have permission to delete matches.");
         return;
       }
 
@@ -699,15 +502,15 @@ export default function AdminMatchesPage() {
       if (error) {
         console.error(
           "Supabase error details:",
-          error?.message,
-          error?.details,
-          error?.hint,
+          error.message,
+          error.details,
+          error.hint,
         );
         setErrorMessage(error.message || "Failed to delete match.");
         return;
       }
 
-      setMatches((prev) => prev.filter((match) => match.id !== matchId));
+      setMatches((prev) => prev.filter((match: Match) => match.id !== matchId));
 
       if (editingMatchId === matchId) {
         cancelEdit();
@@ -718,8 +521,88 @@ export default function AdminMatchesPage() {
       console.error("Unexpected error:", error);
       setErrorMessage("Something went wrong while deleting the match.");
     } finally {
-      setDeletingMatchId(null);
+      setProcessingMatchId(null);
       setDeleteTargetId(null);
+    }
+  };
+
+  const handleTerminateMatch = async (matchId: string) => {
+    try {
+      setProcessingMatchId(matchId);
+      setErrorMessage("");
+      setSuccessMessage("");
+
+      if (!user) {
+        setErrorMessage("You must be logged in.");
+        return;
+      }
+
+      if (!canTerminateMatches) {
+        setErrorMessage("You do not have permission to terminate matches.");
+        return;
+      }
+
+      const { data, error } = await supabase
+        .from("matches")
+        .update({ status: "cancelled" })
+        .eq("id", matchId)
+        .select("*")
+        .maybeSingle();
+
+      if (error) {
+        console.error(
+          "Supabase error details:",
+          error.message,
+          error.details,
+          error.hint,
+        );
+        setErrorMessage(error.message || "Failed to terminate match.");
+        return;
+      }
+
+      const updatedMatch = data as MatchRow | null;
+
+      if (updatedMatch) {
+        const previous = matches.find((match: Match) => match.id === matchId);
+
+        const normalizedMatch: Match = {
+          id: updatedMatch.id,
+          organizer_id: updatedMatch.organizer_id,
+          community_id: updatedMatch.community_id ?? null,
+          title: updatedMatch.title,
+          location: updatedMatch.location,
+          scheduled_at: updatedMatch.scheduled_at,
+          formation_type: updatedMatch.formation_type ?? null,
+          booking_logic: updatedMatch.booking_logic ?? null,
+          position_enabled: updatedMatch.position_enabled ?? false,
+          max_players: updatedMatch.max_players,
+          price: updatedMatch.price ?? null,
+          status: updatedMatch.status,
+          created_at: updatedMatch.created_at,
+          google_maps_url: updatedMatch.google_maps_url ?? null,
+          image_urls: updatedMatch.image_urls ?? [],
+          communityName:
+            updatedMatch.community_id == null
+              ? "Public Match"
+              : (communityMap.get(updatedMatch.community_id) ??
+                "Unknown Community"),
+          users: previous?.users ?? null,
+        };
+
+        setMatches((prev) =>
+          prev.map((match: Match) =>
+            match.id === matchId ? normalizedMatch : match,
+          ),
+        );
+      }
+
+      setSuccessMessage("Match terminated successfully.");
+    } catch (error) {
+      console.error("Unexpected error:", error);
+      setErrorMessage("Something went wrong while terminating the match.");
+    } finally {
+      setProcessingMatchId(null);
+      setTerminateTargetId(null);
     }
   };
 
@@ -728,11 +611,16 @@ export default function AdminMatchesPage() {
       setErrorMessage("");
       setSuccessMessage("");
 
-      const match = matches.find((m) => m.id === matchId);
+      if (!canEditMatches) {
+        setErrorMessage("You do not have permission to remove match images.");
+        return;
+      }
+
+      const match = matches.find((m: Match) => m.id === matchId);
       if (!match) return;
 
       const updatedUrls = (match.image_urls ?? []).filter(
-        (url) => url !== imageUrl,
+        (url: string) => url !== imageUrl,
       );
 
       const { data, error } = await supabase
@@ -745,9 +633,9 @@ export default function AdminMatchesPage() {
       if (error) {
         console.error(
           "Supabase error details:",
-          error?.message,
-          error?.details,
-          error?.hint,
+          error.message,
+          error.details,
+          error.hint,
         );
         setErrorMessage("Failed to remove image.");
         return;
@@ -757,14 +645,14 @@ export default function AdminMatchesPage() {
 
       if (updatedMatch) {
         setMatches((prev) =>
-          prev.map((match) =>
-            match.id === matchId
+          prev.map((item: Match) =>
+            item.id === matchId
               ? {
-                  ...match,
+                  ...item,
                   image_urls: updatedMatch.image_urls ?? [],
                   google_maps_url: updatedMatch.google_maps_url ?? null,
                 }
-              : match,
+              : item,
           ),
         );
       }
@@ -785,16 +673,16 @@ export default function AdminMatchesPage() {
   }
 
   if (!user) return null;
-  if (!isAdmin) return null;
+  if (!canViewMatches) return null;
 
   return (
     <>
       <div className="space-y-6">
         <div className="rounded-2xl border bg-white p-6 shadow-sm">
-          <h1 className="text-2xl font-bold text-gray-900">Admin Matches</h1>
+          <h1 className="text-2xl font-bold text-gray-900">Manage Matches</h1>
           <p className="mt-2 text-sm text-gray-600">
-            Create public or community-linked matches and manage all platform
-            matches.
+            Admin and Main Admin can observe, edit, delete, and terminate
+            matches. Creating matches is disabled.
           </p>
         </div>
 
@@ -810,679 +698,426 @@ export default function AdminMatchesPage() {
           </div>
         )}
 
-        <div className="grid gap-6 lg:grid-cols-3">
-          <div className="lg:col-span-1">
-            <div className="rounded-2xl border bg-white p-6 shadow-sm">
-              <h2 className="text-lg font-semibold text-gray-900">
-                Create Match
-              </h2>
-
-              <form onSubmit={handleCreateMatch} className="mt-5 space-y-4">
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-gray-700">
-                    Match Type
-                  </label>
-                  <select
-                    name="community_id"
-                    value={formData.community_id}
-                    onChange={handleChange}
-                    className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm outline-none transition focus:border-black"
-                  >
-                    <option value={PUBLIC_MATCH_VALUE}>Public Match</option>
-                    {communities.map((community) => (
-                      <option key={community.id} value={community.id}>
-                        {community.name}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-gray-700">
-                    Match Title
-                  </label>
-                  <input
-                    name="title"
-                    type="text"
-                    value={formData.title}
-                    onChange={handleChange}
-                    placeholder="Example: Friday Night 5v5"
-                    className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm outline-none transition focus:border-black"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-gray-700">
-                    Venue Name
-                  </label>
-                  <input
-                    name="location"
-                    type="text"
-                    value={formData.location}
-                    onChange={handleChange}
-                    placeholder="Example: Urban FC Arena"
-                    className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm outline-none transition focus:border-black"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-gray-700">
-                    Scheduled At
-                  </label>
-                  <input
-                    name="scheduled_at"
-                    type="datetime-local"
-                    value={formData.scheduled_at}
-                    onChange={handleChange}
-                    className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm outline-none transition focus:border-black"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-gray-700">
-                    Formation Type
-                  </label>
-                  <input
-                    name="formation_type"
-                    type="text"
-                    value={formData.formation_type}
-                    onChange={handleChange}
-                    placeholder="Example: 5v5"
-                    className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm outline-none transition focus:border-black"
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-gray-700">
-                    Booking Logic
-                  </label>
-                  <input
-                    name="booking_logic"
-                    type="text"
-                    value={formData.booking_logic}
-                    onChange={handleChange}
-                    placeholder="Example: first come first served"
-                    className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm outline-none transition focus:border-black"
-                  />
-                </div>
-
-                <div className="flex items-center gap-3">
-                  <input
-                    id="position_enabled"
-                    name="position_enabled"
-                    type="checkbox"
-                    checked={formData.position_enabled}
-                    onChange={handleChange}
-                    className="h-4 w-4"
-                  />
-                  <label
-                    htmlFor="position_enabled"
-                    className="text-sm font-medium text-gray-700"
-                  >
-                    Position Enabled
-                  </label>
-                </div>
-
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-gray-700">
-                    Max Players
-                  </label>
-                  <input
-                    name="max_players"
-                    type="number"
-                    min={2}
-                    value={formData.max_players}
-                    onChange={handleChange}
-                    className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm outline-none transition focus:border-black"
-                    required
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-gray-700">
-                    Price
-                  </label>
-                  <input
-                    name="price"
-                    type="number"
-                    min={0}
-                    step="0.01"
-                    value={formData.price}
-                    onChange={handleChange}
-                    className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm outline-none transition focus:border-black"
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-gray-700">
-                    Google Maps URL
-                  </label>
-                  <input
-                    name="google_maps_url"
-                    type="url"
-                    value={formData.google_maps_url}
-                    onChange={handleChange}
-                    placeholder="Paste Google Maps link"
-                    className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm outline-none transition focus:border-black"
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-gray-700">
-                    Match Images
-                  </label>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    multiple
-                    onChange={handleFileChange}
-                    className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm outline-none transition focus:border-black"
-                  />
-                  {selectedFiles.length > 0 && (
-                    <p className="mt-2 text-xs text-gray-500">
-                      {selectedFiles.length} image(s) selected
-                    </p>
-                  )}
-                </div>
-
-                <div>
-                  <label className="mb-2 block text-sm font-medium text-gray-700">
-                    Status
-                  </label>
-                  <select
-                    name="status"
-                    value={formData.status}
-                    onChange={handleChange}
-                    className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm outline-none transition focus:border-black"
-                  >
-                    <option value="open">Open</option>
-                    <option value="full">Full</option>
-                    <option value="cancelled">Cancelled</option>
-                  </select>
-                </div>
-
-                <button
-                  type="submit"
-                  disabled={submitting || uploadingImages}
-                  className="w-full rounded-xl bg-black px-4 py-3 text-sm font-medium text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {uploadingImages || submitting
-                    ? "Uploading..."
-                    : "Create Match"}
-                </button>
-              </form>
+        <div className="space-y-4">
+          {filteredMatches.length === 0 ? (
+            <div className="rounded-2xl border bg-white p-8 text-center shadow-sm">
+              <p className="text-sm text-gray-500">No matches found.</p>
             </div>
-          </div>
+          ) : (
+            filteredMatches.map((match: Match) => {
+              const isEditing = editingMatchId === match.id;
+              const coverImage = match.image_urls?.[0];
 
-          <div className="lg:col-span-2">
-            <div className="rounded-2xl border bg-white p-6 shadow-sm">
-              <div className="mb-5 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
-                <div>
-                  <h2 className="text-lg font-semibold text-gray-900">
-                    All Matches
-                  </h2>
-                  <p className="mt-1 text-sm text-gray-600">
-                    Platform-wide match management.
-                  </p>
-                </div>
+              return (
+                <div
+                  key={match.id}
+                  className="overflow-hidden rounded-2xl border bg-white shadow-sm"
+                >
+                  {isEditing ? (
+                    <div className="p-6 space-y-4">
+                      <div className="flex items-start justify-between gap-3">
+                        <h3 className="text-base font-semibold text-gray-900">
+                          Edit Match
+                        </h3>
+                        <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-medium text-blue-700">
+                          Editing
+                        </span>
+                      </div>
 
-                <div className="grid gap-3 sm:grid-cols-2">
-                  <div>
-                    <label className="mb-2 block text-sm font-medium text-gray-700">
-                      Search
-                    </label>
-                    <input
-                      type="text"
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                      placeholder="Search title, organizer, community, location"
-                      className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm outline-none transition focus:border-black"
-                    />
-                  </div>
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <div>
+                          <label className="mb-2 block text-sm font-medium text-gray-700">
+                            Match Type
+                          </label>
+                          <select
+                            name="community_id"
+                            value={editFormData.community_id}
+                            onChange={handleEditChange}
+                            className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm outline-none transition focus:border-black"
+                          >
+                            <option value={PUBLIC_MATCH_VALUE}>
+                              Public Match
+                            </option>
+                            {communities.map((community: CommunityRow) => (
+                              <option key={community.id} value={community.id}>
+                                {community.name}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
 
-                  <div>
-                    <label className="mb-2 block text-sm font-medium text-gray-700">
-                      Status
-                    </label>
-                    <select
-                      value={statusFilter}
-                      onChange={(e) =>
-                        setStatusFilter(e.target.value as "all" | MatchStatus)
-                      }
-                      className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm outline-none transition focus:border-black"
-                    >
-                      <option value="all">All</option>
-                      <option value="open">Open</option>
-                      <option value="full">Full</option>
-                      <option value="cancelled">Cancelled</option>
-                    </select>
-                  </div>
-                </div>
-              </div>
+                        <div>
+                          <label className="mb-2 block text-sm font-medium text-gray-700">
+                            Match Title
+                          </label>
+                          <input
+                            name="title"
+                            type="text"
+                            value={editFormData.title}
+                            onChange={handleEditChange}
+                            className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm outline-none transition focus:border-black"
+                          />
+                        </div>
 
-              <div className="mb-5">
-                <span className="rounded-full bg-gray-100 px-3 py-1 text-xs font-medium text-gray-700">
-                  {filteredMatches.length} shown
-                </span>
-              </div>
+                        <div>
+                          <label className="mb-2 block text-sm font-medium text-gray-700">
+                            Location
+                          </label>
+                          <input
+                            name="location"
+                            type="text"
+                            value={editFormData.location}
+                            onChange={handleEditChange}
+                            className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm outline-none transition focus:border-black"
+                          />
+                        </div>
 
-              {filteredMatches.length === 0 ? (
-                <div className="rounded-2xl border border-dashed p-8 text-center">
-                  <p className="text-sm text-gray-500">
-                    No matches match your filters.
-                  </p>
-                </div>
-              ) : (
-                <div className="grid gap-4">
-                  {filteredMatches.map((match) => {
-                    const isEditing = editingMatchId === match.id;
-                    const coverImage = match.image_urls?.[0];
+                        <div>
+                          <label className="mb-2 block text-sm font-medium text-gray-700">
+                            Scheduled At
+                          </label>
+                          <input
+                            name="scheduled_at"
+                            type="datetime-local"
+                            value={editFormData.scheduled_at}
+                            onChange={handleEditChange}
+                            className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm outline-none transition focus:border-black"
+                          />
+                        </div>
 
-                    return (
-                      <div
-                        key={match.id}
-                        className="overflow-hidden rounded-2xl border bg-white shadow-sm"
-                      >
-                        {isEditing ? (
-                          <div className="p-6 space-y-4">
-                            <div className="flex items-start justify-between gap-3">
-                              <h3 className="text-base font-semibold text-gray-900">
-                                Edit Match
-                              </h3>
-                              <span className="rounded-full bg-blue-100 px-3 py-1 text-xs font-medium text-blue-700">
-                                Editing
+                        <div>
+                          <label className="mb-2 block text-sm font-medium text-gray-700">
+                            Formation Type
+                          </label>
+                          <input
+                            name="formation_type"
+                            type="text"
+                            value={editFormData.formation_type}
+                            onChange={handleEditChange}
+                            className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm outline-none transition focus:border-black"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="mb-2 block text-sm font-medium text-gray-700">
+                            Booking Logic
+                          </label>
+                          <input
+                            name="booking_logic"
+                            type="text"
+                            value={editFormData.booking_logic}
+                            onChange={handleEditChange}
+                            className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm outline-none transition focus:border-black"
+                          />
+                        </div>
+
+                        <div className="flex items-center gap-3 pt-8">
+                          <input
+                            id={`position_enabled_${match.id}`}
+                            name="position_enabled"
+                            type="checkbox"
+                            checked={editFormData.position_enabled}
+                            onChange={handleEditChange}
+                            className="h-4 w-4"
+                          />
+                          <label
+                            htmlFor={`position_enabled_${match.id}`}
+                            className="text-sm font-medium text-gray-700"
+                          >
+                            Position Enabled
+                          </label>
+                        </div>
+
+                        <div>
+                          <label className="mb-2 block text-sm font-medium text-gray-700">
+                            Max Players
+                          </label>
+                          <input
+                            name="max_players"
+                            type="number"
+                            min={2}
+                            value={editFormData.max_players}
+                            onChange={handleEditChange}
+                            className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm outline-none transition focus:border-black"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="mb-2 block text-sm font-medium text-gray-700">
+                            Price
+                          </label>
+                          <input
+                            name="price"
+                            type="number"
+                            min={0}
+                            step="0.01"
+                            value={editFormData.price}
+                            onChange={handleEditChange}
+                            className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm outline-none transition focus:border-black"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="mb-2 block text-sm font-medium text-gray-700">
+                            Google Maps URL
+                          </label>
+                          <input
+                            name="google_maps_url"
+                            type="url"
+                            value={editFormData.google_maps_url}
+                            onChange={handleEditChange}
+                            className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm outline-none transition focus:border-black"
+                          />
+                        </div>
+
+                        <div>
+                          <label className="mb-2 block text-sm font-medium text-gray-700">
+                            Status
+                          </label>
+                          <select
+                            name="status"
+                            value={editFormData.status}
+                            onChange={handleEditChange}
+                            className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm outline-none transition focus:border-black"
+                          >
+                            <option value="open">Open</option>
+                            <option value="full">Full</option>
+                            <option value="cancelled">Cancelled</option>
+                          </select>
+                        </div>
+
+                        <div className="md:col-span-2">
+                          <label className="mb-2 block text-sm font-medium text-gray-700">
+                            Add More Match Images
+                          </label>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            multiple
+                            onChange={handleEditFileChange}
+                            className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm outline-none transition focus:border-black"
+                          />
+                          {editSelectedFiles.length > 0 && (
+                            <p className="mt-2 text-xs text-gray-500">
+                              {editSelectedFiles.length} new image(s) selected
+                            </p>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="flex flex-wrap gap-3">
+                        <button
+                          type="button"
+                          onClick={() => void handleSaveEdit(match.id)}
+                          disabled={savingEdit}
+                          className="rounded-xl bg-black px-4 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {savingEdit ? "Saving..." : "Save Changes"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={cancelEdit}
+                          disabled={savingEdit}
+                          className="rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <>
+                      {coverImage ? (
+                        <div className="relative h-64 w-full">
+                          <Image
+                            src={coverImage}
+                            alt={match.title}
+                            fill
+                            sizes="(max-width: 768px) 100vw, 66vw"
+                            className="object-cover"
+                          />
+                        </div>
+                      ) : (
+                        <div className="flex h-40 items-center justify-center bg-gray-100 text-sm text-gray-500">
+                          No match image
+                        </div>
+                      )}
+
+                      <div className="p-6">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <div className="mb-2">
+                              <span className="rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-xs font-semibold text-gray-700">
+                                {match.communityName || "Public Match"}
                               </span>
                             </div>
 
-                            <div className="grid gap-4 md:grid-cols-2">
-                              <div>
-                                <label className="mb-2 block text-sm font-medium text-gray-700">
-                                  Match Type
-                                </label>
-                                <select
-                                  name="community_id"
-                                  value={editFormData.community_id}
-                                  onChange={handleEditChange}
-                                  className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm outline-none transition focus:border-black"
-                                >
-                                  <option value={PUBLIC_MATCH_VALUE}>
-                                    Public Match
-                                  </option>
-                                  {communities.map((community) => (
-                                    <option
-                                      key={community.id}
-                                      value={community.id}
-                                    >
-                                      {community.name}
-                                    </option>
-                                  ))}
-                                </select>
-                              </div>
-
-                              <div>
-                                <label className="mb-2 block text-sm font-medium text-gray-700">
-                                  Match Title
-                                </label>
-                                <input
-                                  name="title"
-                                  type="text"
-                                  value={editFormData.title}
-                                  onChange={handleEditChange}
-                                  className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm outline-none transition focus:border-black"
-                                />
-                              </div>
-
-                              <div>
-                                <label className="mb-2 block text-sm font-medium text-gray-700">
-                                  Location
-                                </label>
-                                <input
-                                  name="location"
-                                  type="text"
-                                  value={editFormData.location}
-                                  onChange={handleEditChange}
-                                  className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm outline-none transition focus:border-black"
-                                />
-                              </div>
-
-                              <div>
-                                <label className="mb-2 block text-sm font-medium text-gray-700">
-                                  Scheduled At
-                                </label>
-                                <input
-                                  name="scheduled_at"
-                                  type="datetime-local"
-                                  value={editFormData.scheduled_at}
-                                  onChange={handleEditChange}
-                                  className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm outline-none transition focus:border-black"
-                                />
-                              </div>
-
-                              <div>
-                                <label className="mb-2 block text-sm font-medium text-gray-700">
-                                  Formation Type
-                                </label>
-                                <input
-                                  name="formation_type"
-                                  type="text"
-                                  value={editFormData.formation_type}
-                                  onChange={handleEditChange}
-                                  className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm outline-none transition focus:border-black"
-                                />
-                              </div>
-
-                              <div>
-                                <label className="mb-2 block text-sm font-medium text-gray-700">
-                                  Booking Logic
-                                </label>
-                                <input
-                                  name="booking_logic"
-                                  type="text"
-                                  value={editFormData.booking_logic}
-                                  onChange={handleEditChange}
-                                  className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm outline-none transition focus:border-black"
-                                />
-                              </div>
-
-                              <div className="flex items-center gap-3 pt-8">
-                                <input
-                                  id={`position_enabled_${match.id}`}
-                                  name="position_enabled"
-                                  type="checkbox"
-                                  checked={editFormData.position_enabled}
-                                  onChange={handleEditChange}
-                                  className="h-4 w-4"
-                                />
-                                <label
-                                  htmlFor={`position_enabled_${match.id}`}
-                                  className="text-sm font-medium text-gray-700"
-                                >
-                                  Position Enabled
-                                </label>
-                              </div>
-
-                              <div>
-                                <label className="mb-2 block text-sm font-medium text-gray-700">
-                                  Max Players
-                                </label>
-                                <input
-                                  name="max_players"
-                                  type="number"
-                                  min={2}
-                                  value={editFormData.max_players}
-                                  onChange={handleEditChange}
-                                  className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm outline-none transition focus:border-black"
-                                />
-                              </div>
-
-                              <div>
-                                <label className="mb-2 block text-sm font-medium text-gray-700">
-                                  Price
-                                </label>
-                                <input
-                                  name="price"
-                                  type="number"
-                                  min={0}
-                                  step="0.01"
-                                  value={editFormData.price}
-                                  onChange={handleEditChange}
-                                  className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm outline-none transition focus:border-black"
-                                />
-                              </div>
-
-                              <div>
-                                <label className="mb-2 block text-sm font-medium text-gray-700">
-                                  Google Maps URL
-                                </label>
-                                <input
-                                  name="google_maps_url"
-                                  type="url"
-                                  value={editFormData.google_maps_url}
-                                  onChange={handleEditChange}
-                                  className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm outline-none transition focus:border-black"
-                                />
-                              </div>
-
-                              <div>
-                                <label className="mb-2 block text-sm font-medium text-gray-700">
-                                  Status
-                                </label>
-                                <select
-                                  name="status"
-                                  value={editFormData.status}
-                                  onChange={handleEditChange}
-                                  className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm outline-none transition focus:border-black"
-                                >
-                                  <option value="open">Open</option>
-                                  <option value="full">Full</option>
-                                  <option value="cancelled">Cancelled</option>
-                                </select>
-                              </div>
-
-                              <div className="md:col-span-2">
-                                <label className="mb-2 block text-sm font-medium text-gray-700">
-                                  Add More Match Images
-                                </label>
-                                <input
-                                  type="file"
-                                  accept="image/*"
-                                  multiple
-                                  onChange={handleEditFileChange}
-                                  className="w-full rounded-xl border border-gray-300 px-4 py-3 text-sm outline-none transition focus:border-black"
-                                />
-                                {editSelectedFiles.length > 0 && (
-                                  <p className="mt-2 text-xs text-gray-500">
-                                    {editSelectedFiles.length} new image(s)
-                                    selected
-                                  </p>
-                                )}
-                              </div>
-                            </div>
-
-                            <div className="flex flex-wrap gap-3">
-                              <button
-                                type="button"
-                                onClick={() => void handleSaveEdit(match.id)}
-                                disabled={savingEdit}
-                                className="rounded-xl bg-black px-4 py-2 text-sm font-medium text-white transition hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
-                              >
-                                {savingEdit ? "Saving..." : "Save Changes"}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={cancelEdit}
-                                disabled={savingEdit}
-                                className="rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-60"
-                              >
-                                Cancel
-                              </button>
-                            </div>
+                            <h3 className="text-xl font-bold text-gray-900">
+                              {match.title}
+                            </h3>
+                            <p className="mt-1 text-sm text-gray-600">
+                              Organizer:{" "}
+                              {match.users?.full_name ||
+                                match.users?.email ||
+                                "Unknown"}
+                            </p>
                           </div>
-                        ) : (
-                          <>
-                            {coverImage ? (
-                              <div className="relative h-64 w-full">
-                                <Image
-                                  src={coverImage}
-                                  alt={match.title}
-                                  fill
-                                  sizes="(max-width: 768px) 100vw, 66vw"
-                                  className="object-cover"
-                                />
-                              </div>
-                            ) : (
-                              <div className="flex h-40 items-center justify-center bg-gray-100 text-sm text-gray-500">
-                                No match image
-                              </div>
-                            )}
 
-                            <div className="p-6">
-                              <div className="flex items-start justify-between gap-3">
-                                <div>
-                                  <div className="mb-2">
-                                    <span className="rounded-full border border-gray-200 bg-gray-50 px-3 py-1 text-xs font-semibold text-gray-700">
-                                      {match.communityName || "Public Match"}
-                                    </span>
-                                  </div>
+                          <span
+                            className={`rounded-full px-3 py-1 text-xs font-medium ${
+                              match.status === "open"
+                                ? "bg-green-100 text-green-700"
+                                : match.status === "full"
+                                  ? "bg-yellow-100 text-yellow-700"
+                                  : "bg-red-100 text-red-700"
+                            }`}
+                          >
+                            {match.status}
+                          </span>
+                        </div>
 
-                                  <h3 className="text-xl font-bold text-gray-900">
-                                    {match.title}
-                                  </h3>
-                                  <p className="mt-1 text-sm text-gray-600">
-                                    Organizer:{" "}
-                                    {match.users?.full_name ||
-                                      match.users?.email ||
-                                      "Unknown"}
-                                  </p>
-                                </div>
+                        <div className="mt-5 grid gap-3 text-sm text-gray-700 md:grid-cols-2">
+                          <p>
+                            <span className="font-semibold text-gray-900">
+                              Scheduled:
+                            </span>{" "}
+                            {new Date(match.scheduled_at).toLocaleString()}
+                          </p>
+                          <p>
+                            <span className="font-semibold text-gray-900">
+                              Venue:
+                            </span>{" "}
+                            {match.location}
+                          </p>
+                          <p>
+                            <span className="font-semibold text-gray-900">
+                              Formation:
+                            </span>{" "}
+                            {match.formation_type || "N/A"}
+                          </p>
+                          <p>
+                            <span className="font-semibold text-gray-900">
+                              Booking Logic:
+                            </span>{" "}
+                            {match.booking_logic || "N/A"}
+                          </p>
+                          <p>
+                            <span className="font-semibold text-gray-900">
+                              Max Players:
+                            </span>{" "}
+                            {match.max_players}
+                          </p>
+                          <p>
+                            <span className="font-semibold text-gray-900">
+                              Price:
+                            </span>{" "}
+                            {match.price ?? 0}
+                          </p>
+                          <p>
+                            <span className="font-semibold text-gray-900">
+                              Positions Enabled:
+                            </span>{" "}
+                            {match.position_enabled ? "Yes" : "No"}
+                          </p>
+                          {match.created_at && (
+                            <p>
+                              <span className="font-semibold text-gray-900">
+                                Created:
+                              </span>{" "}
+                              {new Date(match.created_at).toLocaleDateString()}
+                            </p>
+                          )}
+                        </div>
 
-                                <span
-                                  className={`rounded-full px-3 py-1 text-xs font-medium ${
-                                    match.status === "open"
-                                      ? "bg-green-100 text-green-700"
-                                      : match.status === "full"
-                                        ? "bg-yellow-100 text-yellow-700"
-                                        : "bg-red-100 text-red-700"
-                                  }`}
-                                >
-                                  {match.status}
-                                </span>
-                              </div>
-
-                              <div className="mt-5 grid gap-3 text-sm text-gray-700 md:grid-cols-2">
-                                <p>
-                                  <span className="font-semibold text-gray-900">
-                                    Scheduled:
-                                  </span>{" "}
-                                  {new Date(
-                                    match.scheduled_at,
-                                  ).toLocaleString()}
-                                </p>
-                                <p>
-                                  <span className="font-semibold text-gray-900">
-                                    Venue:
-                                  </span>{" "}
-                                  {match.location}
-                                </p>
-                                <p>
-                                  <span className="font-semibold text-gray-900">
-                                    Formation:
-                                  </span>{" "}
-                                  {match.formation_type || "N/A"}
-                                </p>
-                                <p>
-                                  <span className="font-semibold text-gray-900">
-                                    Booking Logic:
-                                  </span>{" "}
-                                  {match.booking_logic || "N/A"}
-                                </p>
-                                <p>
-                                  <span className="font-semibold text-gray-900">
-                                    Max Players:
-                                  </span>{" "}
-                                  {match.max_players}
-                                </p>
-                                <p>
-                                  <span className="font-semibold text-gray-900">
-                                    Price:
-                                  </span>{" "}
-                                  {match.price ?? 0}
-                                </p>
-                                <p>
-                                  <span className="font-semibold text-gray-900">
-                                    Positions Enabled:
-                                  </span>{" "}
-                                  {match.position_enabled ? "Yes" : "No"}
-                                </p>
-                                {match.created_at && (
-                                  <p>
-                                    <span className="font-semibold text-gray-900">
-                                      Created:
-                                    </span>{" "}
-                                    {new Date(
-                                      match.created_at,
-                                    ).toLocaleDateString()}
-                                  </p>
-                                )}
-                              </div>
-
-                              {match.google_maps_url && (
-                                <div className="mt-4">
-                                  <a
-                                    href={match.google_maps_url}
-                                    target="_blank"
-                                    rel="noreferrer"
-                                    className="inline-flex rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium text-blue-600 transition hover:bg-gray-50"
-                                  >
-                                    Open in Google Maps
-                                  </a>
-                                </div>
-                              )}
-
-                              {match.image_urls &&
-                                match.image_urls.length > 0 && (
-                                  <div className="mt-5 grid grid-cols-2 gap-3 md:grid-cols-3">
-                                    {match.image_urls.map((url, index) => (
-                                      <div
-                                        key={`${match.id}-${index}`}
-                                        className="relative h-28 w-full overflow-hidden rounded-xl border"
-                                      >
-                                        <Image
-                                          src={url}
-                                          alt={`Match image ${index + 1}`}
-                                          fill
-                                          sizes="(max-width: 768px) 50vw, 20vw"
-                                          className="object-cover"
-                                        />
-                                        <button
-                                          type="button"
-                                          onClick={() =>
-                                            void handleRemoveImage(
-                                              match.id,
-                                              url,
-                                            )
-                                          }
-                                          className="absolute right-2 top-2 rounded-full bg-black/70 px-2 py-1 text-xs text-white"
-                                        >
-                                          Remove
-                                        </button>
-                                      </div>
-                                    ))}
-                                  </div>
-                                )}
-
-                              <div className="mt-5 flex flex-wrap gap-3">
-                                <button
-                                  type="button"
-                                  onClick={() => startEdit(match)}
-                                  className="rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
-                                >
-                                  Edit
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setDeleteTargetId(match.id)}
-                                  disabled={deletingMatchId === match.id}
-                                  className="rounded-xl bg-red-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
-                                >
-                                  {deletingMatchId === match.id
-                                    ? "Deleting..."
-                                    : "Delete"}
-                                </button>
-                              </div>
-                            </div>
-                          </>
+                        {match.google_maps_url && (
+                          <div className="mt-4">
+                            <a
+                              href={match.google_maps_url}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium text-blue-600 transition hover:bg-gray-50"
+                            >
+                              Open in Google Maps
+                            </a>
+                          </div>
                         )}
+
+                        {match.image_urls && match.image_urls.length > 0 && (
+                          <div className="mt-5 grid grid-cols-2 gap-3 md:grid-cols-3">
+                            {match.image_urls.map(
+                              (url: string, index: number) => (
+                                <div
+                                  key={`${match.id}-${index}`}
+                                  className="relative h-28 w-full overflow-hidden rounded-xl border"
+                                >
+                                  <Image
+                                    src={url}
+                                    alt={`Match image ${index + 1}`}
+                                    fill
+                                    sizes="(max-width: 768px) 50vw, 20vw"
+                                    className="object-cover"
+                                  />
+                                  {canEditMatches && (
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        void handleRemoveImage(match.id, url)
+                                      }
+                                      className="absolute right-2 top-2 rounded-full bg-black/70 px-2 py-1 text-xs text-white"
+                                    >
+                                      Remove
+                                    </button>
+                                  )}
+                                </div>
+                              ),
+                            )}
+                          </div>
+                        )}
+
+                        <div className="mt-5 flex flex-wrap gap-3">
+                          {canEditMatches && (
+                            <button
+                              type="button"
+                              onClick={() => startEdit(match)}
+                              className="rounded-xl border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 transition hover:bg-gray-50"
+                            >
+                              Edit
+                            </button>
+                          )}
+
+                          {canDeleteMatches && (
+                            <button
+                              type="button"
+                              onClick={() => setDeleteTargetId(match.id)}
+                              disabled={processingMatchId === match.id}
+                              className="rounded-xl bg-red-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-red-700 disabled:cursor-not-allowed disabled:opacity-60"
+                            >
+                              {processingMatchId === match.id
+                                ? "Working..."
+                                : "Delete"}
+                            </button>
+                          )}
+
+                          {canTerminateMatches &&
+                            match.status !== "cancelled" && (
+                              <button
+                                type="button"
+                                onClick={() => setTerminateTargetId(match.id)}
+                                disabled={processingMatchId === match.id}
+                                className="rounded-xl bg-orange-600 px-4 py-2 text-sm font-medium text-white transition hover:bg-orange-700 disabled:cursor-not-allowed disabled:opacity-60"
+                              >
+                                {processingMatchId === match.id
+                                  ? "Working..."
+                                  : "Terminate Match"}
+                              </button>
+                            )}
+                        </div>
                       </div>
-                    );
-                  })}
+                    </>
+                  )}
                 </div>
-              )}
-            </div>
-          </div>
+              );
+            })
+          )}
         </div>
       </div>
 
@@ -1492,11 +1127,26 @@ export default function AdminMatchesPage() {
         description="Are you sure you want to delete this match? This action cannot be undone."
         confirmLabel="Delete"
         confirmVariant="danger"
-        loading={deletingMatchId === deleteTargetId}
+        loading={processingMatchId === deleteTargetId}
         onCancel={() => setDeleteTargetId(null)}
         onConfirm={() => {
           if (deleteTargetId) {
             void handleDeleteMatch(deleteTargetId);
+          }
+        }}
+      />
+
+      <ConfirmModal
+        open={!!terminateTargetId}
+        title="Terminate Match"
+        description="Are you sure you want to terminate this match? This will set its status to cancelled."
+        confirmLabel="Terminate"
+        confirmVariant="warning"
+        loading={processingMatchId === terminateTargetId}
+        onCancel={() => setTerminateTargetId(null)}
+        onConfirm={() => {
+          if (terminateTargetId) {
+            void handleTerminateMatch(terminateTargetId);
           }
         }}
       />
